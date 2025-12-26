@@ -1,9 +1,9 @@
 {
 	"schemaVersion": 1,
-	"id": "stackable-items",
+	"id": "unlimited-combination-enchantment",
 	"version": "1.0.0",
-	"name": "Stackable Items",
-	"description": "Make items stackable up to 64",
+	"name": "Unlimited Combination Enchantment (UCE)",
+	"description": "Make enchantments can be combined without limits",
 	"authors": [
 		"BadutZY"
 	],
@@ -11,24 +11,21 @@
 		"homepage": "https://modrinth.com/user/BadutZY"
 	},
 	"license": "MIT",
-	"icon": "assets/stackablelitems/icon.png",
+	"icon": "assets/addenchanted/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"com.example.stackable.StackableTotem"
-		],
-		"fabric-datagen": [
-			"com.example.stackable.StackablelItemsDataGenerator"
+			"com.example.addenchanted.AdditionalEnchanted"
 		]
 	},
 	"mixins": [
-		"stackablelitems.mixins.json"
+		"addenchanment.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.16.10",
-		"minecraft": "~1.21.4",
+		"minecraft": "~1.21",
 		"java": ">=21",
-		"fabric-api": "0.119.3"
+		"fabric-api": "*"
 	},
 	"suggests": {
 		"another-mod": "*"
