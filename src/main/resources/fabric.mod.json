@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "unlimited-combination-enchantment",
-	"version": "1.0.0",
+	"version": "${version}",
 	"name": "Unlimited Combination Enchantment (UCE)",
 	"description": "Make enchantments can be combined without limits",
 	"authors": [
@@ -22,10 +22,10 @@
 		"addenchanment.mixins.json"
 	],
 	"depends": {
-		"fabricloader": ">=0.16.10",
-		"minecraft": "~1.21",
-		"java": ">=21",
-		"fabric-api": "*"
+		"fabricloader": ">=0.14.6",
+		"minecraft": "~1.19",
+		"java": ">=17",
+		"fabric": "*"
 	},
 	"suggests": {
 		"another-mod": "*"
