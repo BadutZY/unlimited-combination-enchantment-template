@@ -1,21 +1,22 @@
 package com.example.addenchanted.mixin;
 
 import com.example.addenchanted.AdditionalEnchanted;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.ItemEnchantmentsComponent;
 import net.minecraft.enchantment.Enchantment;
+import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.item.ArmorItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.screen.AnvilScreenHandler;
 import net.minecraft.screen.ForgingScreenHandler;
 import net.minecraft.screen.ScreenHandlerContext;
+import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
-import net.minecraft.text.Text;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,10 +24,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * Mixin Anvil - SERVER SYNC FIXED
- * Problem: Server tidak detect apply book operation
- * Solution: Enhanced logging + robust enchantment detection
+ * Mixin Anvil - FIXED FOR MC 1.19.3
+ * Tidak menggunakan Registry, langsung manipulasi NBT
  */
 @Mixin(AnvilScreenHandler.class)
 public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
@@ -40,32 +43,75 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
     @Unique
     private int customLevelCost = 0;
 
-    // FIXED: Constructor disesuaikan dengan ForgingScreenHandler di MC 1.21
-    // ForgingScreenHandler membutuhkan 4 parameter, bukan 5
-    public AnvilScreenHandlerMixin() {
-        super(null, 0, null, null);
+    // Constructor untuk MC 1.19
+    public AnvilScreenHandlerMixin(@Nullable ScreenHandlerType<?> type, int syncId,
+                                   PlayerEntity player, ScreenHandlerContext context) {
+        super(type, syncId, player.getInventory(), context);
     }
 
     @Unique
     private static boolean isTransferableItem(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        // Check if item can hold enchantments
         return stack.isDamageable() || stack.getItem() instanceof ArmorItem;
     }
 
     @Unique
     private static boolean hasEnchantments(ItemStack stack) {
         if (stack.isEmpty()) return false;
+        Map<Enchantment, Integer> enchants = EnchantmentHelper.get(stack);
+        return enchants != null && !enchants.isEmpty();
+    }
 
-        // Check regular enchantments
-        ItemEnchantmentsComponent enchants = stack.get(DataComponentTypes.ENCHANTMENTS);
-        if (enchants != null && !enchants.isEmpty()) {
-            return true;
+    @Unique
+    private static Map<Enchantment, Integer> getStoredEnchantments(ItemStack stack) {
+        if (!stack.isOf(Items.ENCHANTED_BOOK)) {
+            return new HashMap<>();
         }
 
-        // Check stored enchantments (for books)
-        ItemEnchantmentsComponent storedEnchants = stack.get(DataComponentTypes.STORED_ENCHANTMENTS);
-        return storedEnchants != null && !storedEnchants.isEmpty();
+        NbtCompound nbt = stack.getNbt();
+        if (nbt == null || !nbt.contains("StoredEnchantments", 9)) {
+            return new HashMap<>();
+        }
+
+        // Baca enchantment langsung dari NBT tanpa Registry
+        Map<Enchantment, Integer> result = new HashMap<>();
+        Map<Enchantment, Integer> allEnchants = EnchantmentHelper.get(stack);
+
+        // Untuk enchanted book, EnchantmentHelper.get() sudah baca StoredEnchantments
+        if (allEnchants != null) {
+            result.putAll(allEnchants);
+        }
+
+        return result;
+    }
+
+    @Unique
+    private static void setStoredEnchantments(ItemStack stack, Map<Enchantment, Integer> enchantments) {
+        if (!stack.isOf(Items.ENCHANTED_BOOK)) return;
+
+        NbtCompound nbt = stack.getOrCreateNbt();
+        NbtList enchantList = new NbtList();
+
+        // Konversi enchantments ke NBT
+        for (Map.Entry<Enchantment, Integer> entry : enchantments.entrySet()) {
+            NbtCompound enchantNbt = new NbtCompound();
+
+            // Menggunakan translation key sebagai ID
+            String enchantId = entry.getKey().getTranslationKey()
+                    .replace("enchantment.", "")
+                    .replace(".", ":");
+
+            // Format: minecraft:protection, minecraft:sharpness, dll
+            if (!enchantId.contains(":")) {
+                enchantId = "minecraft:" + enchantId;
+            }
+
+            enchantNbt.putString("id", enchantId);
+            enchantNbt.putInt("lvl", entry.getValue());
+            enchantList.add(enchantNbt);
+        }
+
+        nbt.put("StoredEnchantments", enchantList);
     }
 
     @Inject(method = "updateResult", at = @At("HEAD"), cancellable = true)
@@ -84,7 +130,6 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
         AdditionalEnchanted.LOGGER.info("Left: {}", leftItem.isEmpty() ? "Empty" : leftItem.getItem());
         AdditionalEnchanted.LOGGER.info("Right: {}", rightItem.isEmpty() ? "Empty" : rightItem.getItem());
 
-        // ENHANCED LOGGING
         if (!leftItem.isEmpty()) {
             AdditionalEnchanted.LOGGER.info("Left has enchants: {}", hasEnchantments(leftItem));
             AdditionalEnchanted.LOGGER.info("Left is transferable: {}", isTransferableItem(leftItem));
@@ -99,24 +144,22 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
         if (!leftItem.isEmpty() && !rightItem.isEmpty() &&
                 isTransferableItem(leftItem) && rightItem.isOf(Items.BOOK)) {
 
-            ItemEnchantmentsComponent enchantments = leftItem.get(DataComponentTypes.ENCHANTMENTS);
+            Map<Enchantment, Integer> enchantments = EnchantmentHelper.get(leftItem);
 
             if (enchantments != null && !enchantments.isEmpty()) {
-                AdditionalEnchanted.LOGGER.info("✓ TRANSFER OPERATION DETECTED: {} enchants to book", enchantments.getSize());
+                AdditionalEnchanted.LOGGER.info("✓ TRANSFER OPERATION DETECTED: {} enchants to book",
+                        enchantments.size());
 
                 ItemStack resultBook = new ItemStack(Items.ENCHANTED_BOOK);
-                ItemEnchantmentsComponent.Builder builder = new ItemEnchantmentsComponent.Builder(ItemEnchantmentsComponent.DEFAULT);
+                setStoredEnchantments(resultBook, enchantments);
 
-                for (RegistryEntry<Enchantment> enchant : enchantments.getEnchantments()) {
-                    int lvl = enchantments.getLevel(enchant);
-                    builder.add(enchant, lvl);
+                for (Map.Entry<Enchantment, Integer> entry : enchantments.entrySet()) {
+                    String name = entry.getKey().getTranslationKey();
                     AdditionalEnchanted.LOGGER.info("  - Transferring: {} lvl {}",
-                            enchant.getKey().map(k -> k.getValue().toString()).orElse("unknown"), lvl);
+                            name, entry.getValue());
                 }
 
-                resultBook.set(DataComponentTypes.STORED_ENCHANTMENTS, builder.build());
                 this.output.setStack(0, resultBook);
-
                 customLevelCost = 0;
                 ((AnvilScreenHandlerAccessor) handler).getLevelCost().set(0);
 
@@ -127,7 +170,7 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
             }
         }
 
-        // OPERASI 2: Apply enchanted book ke tool (FIXED DETECTION)
+        // OPERASI 2: Apply enchanted book ke tool
         if (!leftItem.isEmpty() && !rightItem.isEmpty()) {
             boolean isToolAndBook = isTransferableItem(leftItem) && rightItem.isOf(Items.ENCHANTED_BOOK);
             boolean isBookAndTool = leftItem.isOf(Items.ENCHANTED_BOOK) && isTransferableItem(rightItem);
@@ -140,44 +183,40 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
                 ItemStack tool = isToolAndBook ? leftItem : rightItem;
                 ItemStack book = isToolAndBook ? rightItem : leftItem;
 
-                // CRITICAL FIX: Check STORED_ENCHANTMENTS for enchanted book
-                ItemEnchantmentsComponent bookEnchants = book.get(DataComponentTypes.STORED_ENCHANTMENTS);
+                Map<Enchantment, Integer> bookEnchants = getStoredEnchantments(book);
 
                 AdditionalEnchanted.LOGGER.info("Book enchantments check:");
-                AdditionalEnchanted.LOGGER.info("  bookEnchants is null: {}", bookEnchants == null);
-                if (bookEnchants != null) {
-                    AdditionalEnchanted.LOGGER.info("  bookEnchants isEmpty: {}", bookEnchants.isEmpty());
-                    AdditionalEnchanted.LOGGER.info("  bookEnchants size: {}", bookEnchants.getSize());
-                }
+                AdditionalEnchanted.LOGGER.info("  bookEnchants size: {}", bookEnchants.size());
 
-                if (bookEnchants != null && !bookEnchants.isEmpty()) {
-                    AdditionalEnchanted.LOGGER.info("✓ APPLY OPERATION DETECTED: {} enchants from book to tool", bookEnchants.getSize());
+                if (!bookEnchants.isEmpty()) {
+                    AdditionalEnchanted.LOGGER.info("✓ APPLY OPERATION DETECTED: {} enchants from book to tool",
+                            bookEnchants.size());
 
                     // Clone tool dan gabungkan enchantments
                     ItemStack result = tool.copy();
-                    ItemEnchantmentsComponent toolEnchants = result.getOrDefault(DataComponentTypes.ENCHANTMENTS, ItemEnchantmentsComponent.DEFAULT);
-
-                    ItemEnchantmentsComponent.Builder builder = new ItemEnchantmentsComponent.Builder(toolEnchants);
+                    Map<Enchantment, Integer> toolEnchants = EnchantmentHelper.get(result);
+                    Map<Enchantment, Integer> newEnchants = new HashMap<>(toolEnchants);
 
                     int enchantCount = 0;
-                    for (RegistryEntry<Enchantment> enchant : bookEnchants.getEnchantments()) {
-                        int bookLevel = bookEnchants.getLevel(enchant);
-                        int currentLevel = toolEnchants.getLevel(enchant);
+                    for (Map.Entry<Enchantment, Integer> entry : bookEnchants.entrySet()) {
+                        Enchantment enchant = entry.getKey();
+                        int bookLevel = entry.getValue();
+                        int currentLevel = toolEnchants.getOrDefault(enchant, 0);
 
                         int newLevel = Math.max(bookLevel, currentLevel);
                         if (bookLevel == currentLevel && bookLevel > 0) {
                             newLevel = bookLevel + 1;
                         }
 
-                        builder.add(enchant, newLevel);
+                        newEnchants.put(enchant, newLevel);
                         enchantCount++;
 
-                        String enchantName = enchant.getKey().map(k -> k.getValue().toString()).orElse("unknown");
+                        String name = enchant.getTranslationKey();
                         AdditionalEnchanted.LOGGER.info("  - Applying: {} lvl {} (current: {}, book: {}, new: {})",
-                                enchantName, newLevel, currentLevel, bookLevel, newLevel);
+                                name, newLevel, currentLevel, bookLevel, newLevel);
                     }
 
-                    result.set(DataComponentTypes.ENCHANTMENTS, builder.build());
+                    EnchantmentHelper.set(newEnchants, result);
 
                     // Cost formula: 1-5 levels
                     customLevelCost = Math.min(1 + (enchantCount / 3), 5);
@@ -221,7 +260,6 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
         if (isTransferOperation && !stack.isEmpty() && stack.isOf(Items.ENCHANTED_BOOK)) {
             AdditionalEnchanted.LOGGER.info("✓✓✓ TRANSFER OUTPUT TAKEN ✓✓✓");
 
-            // Sound effects
             this.context.run((world, pos) -> {
                 world.playSound(null, pos, SoundEvents.BLOCK_ENCHANTMENT_TABLE_USE, SoundCategory.BLOCKS, 1.0F, 1.0F);
                 world.playSound(null, pos, SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 0.5F, 1.5F);
@@ -245,7 +283,6 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
         else if (isApplyBookOperation && !stack.isEmpty()) {
             AdditionalEnchanted.LOGGER.info("✓✓✓ APPLY OUTPUT TAKEN ✓✓✓");
 
-            // Sound effects
             this.context.run((world, pos) -> {
                 world.playSound(null, pos, SoundEvents.BLOCK_ANVIL_USE, SoundCategory.BLOCKS, 1.0F, 1.0F);
                 world.playSound(null, pos, SoundEvents.BLOCK_ENCHANTMENT_TABLE_USE, SoundCategory.BLOCKS, 0.7F, 1.2F);
@@ -255,16 +292,14 @@ public abstract class AnvilScreenHandlerMixin extends ForgingScreenHandler {
             ItemStack leftItem = input.getStack(0);
             ItemStack rightItem = input.getStack(1);
 
-            // Deduct XP
             if (!player.getAbilities().creativeMode) {
                 int cost = customLevelCost;
-                player.applyEnchantmentCosts(stack, cost);
+                player.addExperienceLevels(-cost);
                 AdditionalEnchanted.LOGGER.info("✓ Deducted {} levels (remaining: {})", cost, player.experienceLevel);
             } else {
                 AdditionalEnchanted.LOGGER.info("✓ Creative mode: no XP deducted");
             }
 
-            // Consume items
             leftItem.decrement(1);
             rightItem.decrement(1);
             this.output.setStack(0, ItemStack.EMPTY);
