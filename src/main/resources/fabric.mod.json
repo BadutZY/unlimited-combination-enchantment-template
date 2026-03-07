@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "unlimited-combination-enchantment",
-	"version": "1.0.0",
+	"version": "${version}",
 	"name": "Unlimited Combination Enchantment (UCE)",
 	"description": "Make enchantments can be combined without limits",
 	"authors": [
