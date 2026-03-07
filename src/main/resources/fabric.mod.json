@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "unlimited-combination-enchantment",
-	"version": "1.0.0",
+	"version": "${version}",
 	"name": "Unlimited Combination Enchantment (UCE)",
 	"description": "Make enchantments can be combined without limits",
 	"authors": [
@@ -23,7 +23,7 @@
 	],
 	"depends": {
 		"fabricloader": ">=0.16.10",
-		"minecraft": "~1.21",
+		"minecraft": "~1.20.5",
 		"java": ">=21",
 		"fabric-api": "*"
 	},
